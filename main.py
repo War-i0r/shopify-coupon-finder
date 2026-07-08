@@ -28,6 +28,10 @@ from urllib.parse import urlparse
 # Regex
 import re
 
+
+# Copyright 2026 Thomas Zimmerman #
+
+
 class MainWindow(QMainWindow):
 
     def __init__(self, targets, browser):
