@@ -1,10 +1,11 @@
 import sys
 from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QWidget, QRadioButton, QButtonGroup, QPushButton, QLineEdit
-from PyQt5.QtWidgets import QBoxLayout, QVBoxLayout, QGridLayout, QHBoxLayout
+from PyQt5.QtWidgets import QBoxLayout, QVBoxLayout, QGridLayout, QHBoxLayout, QFrame, QScrollArea, QSizePolicy, QMessageBox, QErrorMessage
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 from PyQt5 import QtTest
+from PyQt5.QtCore import QSize
 
 from time import sleep;
 
@@ -29,6 +30,15 @@ from urllib.parse import urlparse
 import re
 
 
+
+# Code Colors
+
+COLORS = {
+    10 : "color:orange;",
+    20 : "color:yellow",
+    30 : "color:green;",
+}
+
 # Copyright 2026 Thomas Zimmerman #
 
 
@@ -37,6 +47,8 @@ class MainWindow(QMainWindow):
     def __init__(self, targets, browser):
         super().__init__()
         
+
+        self.firstAutofill = True;
         self.browser : webdriver.Firefox = browser;
         self.targets = targets;
         self.prospects = {};
@@ -44,7 +56,10 @@ class MainWindow(QMainWindow):
             "www.hotdeals.com" : self._hotdeals,
             "simplycodes.com" : self._simplycodes
         }
+        self.foundCodes = {}
         central_widget = QWidget()
+
+
 
         self.setCentralWidget(central_widget)
         self.setWindowTitle("Coupon Finder")
@@ -55,23 +70,173 @@ class MainWindow(QMainWindow):
 
         self.label1.setFont(QFont("Arial", 20))
 
-        self.label1.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label1.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         self.searchQuery = QLineEdit(self)
 
         self.searchQuery.setGeometry(0, 0, 100, 50)
 
-
-        button1 = QPushButton("Initiate Search!", self)
+        self.searchFrame = QFrame()
+        button1 = QPushButton("Initiate Search!", self.searchFrame)
         button1.clicked.connect(self.handle_click)
 
-        vbox = QVBoxLayout()
+        vbox = QVBoxLayout(self.searchFrame)
 
         vbox.addWidget(self.label1)
         vbox.addWidget(self.searchQuery)
         vbox.addWidget(button1)
+        
 
-        central_widget.setLayout(vbox)
+    
+
+        hbox = QHBoxLayout();    
+
+        central_widget.setLayout(hbox)
+
+
+
+        self.results = QLabel("Resulting Codes:", self)
+        self.results.setFont(QFont('Arial', 14))
+        self.results.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+
+   
+        
+        self.resultScroll = QScrollArea()
+        resultWidget = QWidget()
+        self.resultContainer = QVBoxLayout()
+        resultWidget.setLayout(self.resultContainer)
+
+        self.resultScroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.resultScroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.resultScroll.setWidgetResizable(False)
+        self.resultScroll.setWidget(resultWidget)
+
+        self.resultFrame = QFrame(self)
+
+        
+        innerBoxLayout = QVBoxLayout(self.resultFrame)
+        self.resultFrame.setMinimumSize(QSize(400, 100))
+     
+        innerBoxLayout.addWidget(self.results)
+        innerBoxLayout.addWidget(self.resultScroll)
+
+        self.autofillFrame = QFrame(self)
+        autoFrameLayout = QHBoxLayout(self.autofillFrame)
+        self.autofillFrame.setMinimumSize(QSize(400, 10))
+
+        autofillButton = QPushButton("Check Codes", self.autofillFrame)
+
+        autofillButton.clicked.connect(self._autofill)
+
+        self.autofillStatus = QLabel("Click 'Check Codes' to check the found codes for their authenticity.", self.autofillFrame)
+        autoFrameLayout.addWidget(self.autofillStatus)
+        autoFrameLayout.addWidget(autofillButton)
+        
+        innerBoxLayout.addWidget(self.autofillFrame)
+
+
+        hbox.addWidget(self.searchFrame)
+        hbox.addWidget(self.resultFrame)
+        
+    def _apply_style(self, element, s):
+        self.browser.execute_script("arguments[0].setAttribute('style', arguments[1]);", element, s)
+    # Autofill Feature
+    def _autofill(self):
+        if (self.firstAutofill):
+            diag = QMessageBox()
+            diag.setWindowTitle("Alert")
+            diag.setText("NOTE: This assumes that you have opened the relevant Shopify page for your target company, added a random item, proceeded to the checkout page, and opened the discount code text box. If this is not done, this will fail. Make sure the only open tab is the shopify page.")
+            diag.setIcon(QMessageBox.Icon.Question)
+            diag.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel);
+            diag.exec()
+            self.firstAutofill = False;
+        else:
+            # Attempt Autofill
+            inputBox = self.browser.find_element(By.CSS_SELECTOR, "[id^='ReductionsInput']:not([id$='label'])")
+            self._apply_style(inputBox, 'border:10px solid yellow; background-color:yellow;')
+            # Get our form number
+            formNumber = inputBox.get_attribute("form")
+            print(inputBox)
+            print(formNumber)
+
+            
+
+            button = self.browser.find_element(By.CSS_SELECTOR, "[data-event-name='apply_discount']")
+            self._apply_style(button, 'border:10px solid yellow; background-color:yellow;')
+            # change wait to ten seconds to find element, as discounts take a while to find
+            self.browser.implicitly_wait(5)
+            working_codes = []
+            for code, discount in self.foundCodes.items():
+                self._auto_type(inputBox, code)
+                try:
+                    button.click(); 
+                except ElementClickInterceptedException:
+                    print("Click was intercepted, meaning the code auto-submitted")
+                try:
+                    self.browser.find_element(By.CSS_SELECTOR, "[aria-label='Remove "+code+"']")
+
+                    print("Code " + str(code) + " worked!")
+                    working_codes.append(code)
+                except NoSuchElementException:
+                    print("Code " + str(code) + " was a bust...")
+                QtTest.QTest.qWait(1000)
+            print("Final list: ")
+            alertMessage = "These are the following codes which worked, and the discounts they gave:\n"
+            for code, discount in self.foundCodes.items():
+                if code in working_codes:
+                    print(code + ", at a " + str(discount) + "% discount!")
+                    alertMessage += code + ", at a " + str(discount) + "% discount!\n" 
+            if len(working_codes) == 0:
+                alertMessage = "No valid discount codes found... Sorry!"
+            self._info_dialog(alertMessage)
+
+            
+
+    def _info_dialog(self, message):
+        diag = QMessageBox()
+        diag.setWindowTitle("Complete!")
+        diag.setText(message)
+        diag.setIcon(QMessageBox.Icon.Information)
+        diag.setStandardButtons(QMessageBox.StandardButton.Ok);
+        diag.exec()
+
+    def _auto_type(self, target, text):
+        target.clear()
+        target.send_keys(text)
+
+
+
+
+    def _merge_codes(self, foundCodes):
+        allCodes = {}
+        for prospect in foundCodes.keys():
+            for code, item in foundCodes[prospect].items():
+                allCodes[code] = item
+        return self._sort_dict_by_value(allCodes)
+
+
+    def _update_code_ui(self, foundCodes : dict):
+        for child in self.resultContainer.children():
+            self.resultContainer.removeWidget(child)
+        # now empty
+        
+        newResultWidget = QWidget()
+        newResultWidget.setLayout(self.resultContainer)
+        for code, percentOff in foundCodes.items():
+            newLabel = QLabel(self)
+            newLabel.setFont(QFont('Arial', 10, 100, False))
+            newLabel.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            newLabel.setText(f"{code} : {percentOff}")
+            newLabel.setGeometry(int((self.resultFrame.rect().width() / 2) - newLabel.rect().width()), 0, newLabel.rect().width(), 80)
+            newLabel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            for value, style in COLORS.items():
+                if (percentOff >= value):
+                    newLabel.setStyleSheet(style)
+
+            self.resultContainer.addWidget(newLabel)
+        self.resultScroll.setWidget(newResultWidget)
+        self.firstAutofill = True;
+    
 
     def _process_query(self, query) -> str:
         newQuery = "?q="
@@ -102,15 +267,21 @@ class MainWindow(QMainWindow):
         return re.findall(r'([0-9]*\.?[0-9]*)\s*%', dealTitle)
 
     def _search_for_codes(self, target):
-        possible_codes = self.protocols[target]()
-        discovered_codes = {}
-        for i in range(len(possible_codes[0])):
-            discount = self._find_percentage(possible_codes[1][i]);
-            codeContent = possible_codes[0][i]
-            for disc in discount:
-                print("possible discount amount for code [" + str(codeContent) + "]: " + str(disc) + "%")
-                discovered_codes[codeContent] = int(disc)
-        return discovered_codes
+        try:
+            possible_codes = self.protocols[target]()
+            discovered_codes = {}
+            for i in range(len(possible_codes[0])):
+                discount = self._find_percentage(possible_codes[1][i]);
+                codeContent = possible_codes[0][i]
+                for disc in discount:
+                    print("possible discount amount for code [" + str(codeContent) + "]: " + str(disc) + "%")
+                    discovered_codes[codeContent] = int(disc)
+            return discovered_codes
+        except:
+            print("The current whitelisted website ["+target+"] does not have an implementation yet.")
+            return {}
+        
+        
 
     def _sort_dict_by_value(self, oldDict):
         newDict = dict(sorted(oldDict.items(), key=lambda item: item[1]))
@@ -148,6 +319,13 @@ class MainWindow(QMainWindow):
             oldData = foundCodes[root]
             foundCodes[root] = self._sort_dict_by_value(oldData)
             # Need to sort the codes now though
+        # Codes were sorted through
+        allCodes  = self._merge_codes(foundCodes)
+        print("Combined total list of codes")
+        self.foundCodes = allCodes
+        self._update_code_ui(allCodes)
+
+        
             
 
 
