@@ -1,6 +1,7 @@
 import sys
+import os
 from pathlib import Path
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QWidget, QRadioButton, QButtonGroup, QPushButton, QLineEdit
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QWidget, QRadioButton, QButtonGroup, QPushButton, QLineEdit, QCheckBox, QSpacerItem
 from PyQt5.QtWidgets import QBoxLayout, QVBoxLayout, QGridLayout, QHBoxLayout, QFrame, QScrollArea, QSizePolicy, QMessageBox, QErrorMessage
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -17,6 +18,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver import ActionChains
+from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import *
 import undetected_chromedriver as uc
 # Json Imports
@@ -28,6 +30,9 @@ from urllib.parse import urlparse
 
 # Regex
 import re
+
+
+
 
 
 
@@ -122,6 +127,8 @@ class MainWindow(QMainWindow):
 
         self.autofillFrame = QFrame(self)
         autoFrameLayout = QHBoxLayout(self.autofillFrame)
+
+        autoFrameLayout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.autofillFrame.setMinimumSize(QSize(400, 10))
 
         autofillButton = QPushButton("Check Codes", self.autofillFrame)
@@ -129,15 +136,48 @@ class MainWindow(QMainWindow):
         autofillButton.clicked.connect(self._autofill)
 
         self.autofillStatus = QLabel("Click 'Check Codes' to check the found codes for their authenticity.", self.autofillFrame)
+        self.autofillStatus.setWordWrap(True)
+        self.autofillStatus.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+
+
+        self.stopOnFirstFrame = QFrame(self)
+        stopOnFirstLayout = QVBoxLayout(self.stopOnFirstFrame)
+        stopOnFirstLayout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.stopOnFirst = QCheckBox(self.stopOnFirstFrame)
+
+
+        self.stopOFLabel = QLabel("Stop on first valid code?")
+
+        stopOnFirstLayout.addWidget(self.stopOFLabel)
+        stopOnFirstLayout.addWidget(self.stopOnFirst)
+
+        self.stopOnFirstFrame.setLayout(stopOnFirstLayout)
+
+
+
         autoFrameLayout.addWidget(self.autofillStatus)
+        autoFrameLayout.addSpacerItem(QSpacerItem(50, 50, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed))
         autoFrameLayout.addWidget(autofillButton)
-        
+        autoFrameLayout.addSpacerItem(QSpacerItem(50, 50, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed))
+        autoFrameLayout.addWidget(self.stopOnFirstFrame)
+
+
         innerBoxLayout.addWidget(self.autofillFrame)
-
-
         hbox.addWidget(self.searchFrame)
         hbox.addWidget(self.resultFrame)
-        
+
+        # testing the qss system
+        self.autofillFrame.setObjectName("autofillFrame")
+        self.resultFrame.setObjectName("resultFrame")
+        autofillButton.setObjectName("autofillButton")
+        self.autofillStatus.setObjectName("autofillStats")
+
+    
+    
+    def _clear_element(self, element):
+        element.send_keys(Keys.CONTROL, "a");
+        element.send_keys(Keys.DELETE)
+
     def _apply_style(self, element, s):
         self.browser.execute_script("arguments[0].setAttribute('style', arguments[1]);", element, s)
     # Autofill Feature
@@ -145,7 +185,7 @@ class MainWindow(QMainWindow):
         if (self.firstAutofill):
             diag = QMessageBox()
             diag.setWindowTitle("Alert")
-            diag.setText("NOTE: This assumes that you have opened the relevant Shopify page for your target company, added a random item, proceeded to the checkout page, and opened the discount code text box. If this is not done, this will fail. Make sure the only open tab is the shopify page.")
+            diag.setText("NOTE: This assumes that you have opened the relevant Shopify page for your target company within the popup, added a random item, proceeded to the checkout page, and opened the discount code text box. If this is not done, this will fail. Make sure the only open tab is the shopify page.")
             diag.setIcon(QMessageBox.Icon.Question)
             diag.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel);
             diag.exec()
@@ -154,43 +194,58 @@ class MainWindow(QMainWindow):
             # Attempt Autofill
             inputBox = self.browser.find_element(By.CSS_SELECTOR, "[id^='ReductionsInput']:not([id$='label'])")
             self._apply_style(inputBox, 'border:10px solid yellow; background-color:yellow;')
-            # Get our form number
-            formNumber = inputBox.get_attribute("form")
-            print(inputBox)
-            print(formNumber)
-
-            
 
             button = self.browser.find_element(By.CSS_SELECTOR, "[data-event-name='apply_discount']")
             self._apply_style(button, 'border:10px solid yellow; background-color:yellow;')
-            # change wait to ten seconds to find element, as discounts take a while to find
+            # change wait to five seconds to find element, as discounts take a while for Shopify discounts to load on the first go
             self.browser.implicitly_wait(5)
             working_codes = []
             for code, discount in self.foundCodes.items():
+                QtTest.QTest.qWait(500)
                 self._auto_type(inputBox, code)
-                try:
-                    button.click(); 
-                except ElementClickInterceptedException:
-                    print("Click was intercepted, meaning the code auto-submitted")
-                try:
-                    self.browser.find_element(By.CSS_SELECTOR, "[aria-label='Remove "+code+"']")
-
-                    print("Code " + str(code) + " worked!")
+                codeWorkedNormal = False;
+                self._click_button(button)
+                if (self._element_exists([By.CSS_SELECTOR, "[aria-label='Remove "+code+"']"])):
                     working_codes.append(code)
-                except NoSuchElementException:
-                    print("Code " + str(code) + " was a bust...")
+                    codeWorkedNormal = True
+            
+                if (not codeWorkedNormal and self._element_exists([By.CSS_SELECTOR, "div > div > div > span > strong"])):
+                    working_codes.append(code)
+                    # we must press the button to close this dialog for later, when we're testing other codes
+                    closeButton = self._find_element([By.CSS_SELECTOR, "div > div > div > button[aria-label='Close']"])
+                    self._click_button(closeButton)
+                    
                 QtTest.QTest.qWait(1000)
-            print("Final list: ")
+                self._clear_element(inputBox)
+                if (self.stopOnFirst.isChecked() and len(working_codes) == 1):
+                    break
+           
             alertMessage = "These are the following codes which worked, and the discounts they gave:\n"
             for code, discount in self.foundCodes.items():
                 if code in working_codes:
-                    print(code + ", at a " + str(discount) + "% discount!")
                     alertMessage += code + ", at a " + str(discount) + "% discount!\n" 
             if len(working_codes) == 0:
                 alertMessage = "No valid discount codes found... Sorry!"
             self._info_dialog(alertMessage)
 
-            
+    def _click_button(self, element):
+        try:
+            element.click(); 
+            return True
+        except ElementClickInterceptedException:
+            return False
+
+    def _element_exists(self, selectionArray):
+        try:
+            self.browser.find_element(selectionArray[0], selectionArray[1])
+            return True;
+        except NoSuchElementException:
+            return False;      
+    def _find_element(self, selectionArray):
+        try:
+            return self.browser.find_element(selectionArray[0], selectionArray[1])
+        except NoSuchElementException:
+            return False;      
 
     def _info_dialog(self, message):
         diag = QMessageBox()
@@ -201,7 +256,8 @@ class MainWindow(QMainWindow):
         diag.exec()
 
     def _auto_type(self, target, text):
-        target.clear()
+        self._clear_element(target)
+        QtTest.QTest.qWait(250)
         target.send_keys(text)
 
 
@@ -401,7 +457,11 @@ class MainWindow(QMainWindow):
 
 
         
-
+# find resource path for runtime     
+def resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
 
 
 
@@ -434,7 +494,7 @@ def main():
 
     # Load target sites
 
-    with open ('targets.json', 'r') as f:
+    with open (resource_path('targets.json'), 'r') as f:
         data = json.load(f)
 
 
@@ -443,13 +503,19 @@ def main():
     
 
 
-    driver.get("https://google.com/search?q=rubber+ducks")
+    driver.get("https://google.com")
 
     # Initialize UI
     app = QApplication(sys.argv)
-    app.setStyleSheet(Path("styles.qss").read_text())
+    stylesheet = open(resource_path("styles.qss"), 'r', encoding='UTF8')
+    print(stylesheet.read())
+    stylesheet.seek(0)
+    
     window = MainWindow(data["targets"], driver);
+    app.setStyleSheet(stylesheet.read())
+    print(app.styleSheet())
     window.show();
+
     sys.exit(app.exec_());
 
 

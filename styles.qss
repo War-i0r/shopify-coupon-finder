@@ -1,0 +1,39 @@
+
+
+/* Main Background */
+/*
+$text = #e2e1e1;
+$background = #2f3330;
+raised-background = #242725;
+*/
+
+QWidget {
+    background-color: #2f3330;
+}
+
+QLabel {
+    color: #e2e1e1;
+    text-align: center;
+}
+
+QPushButton {
+    color: #e2e1e1;
+    background-color: #242725;
+    border: none;
+    padding: 5px;
+}
+
+QLineEdit{
+    color: #e2e1e1;
+    border: none;
+    background-color: #4c524e;
+}
+
+QCheckBox {
+    margin-left: 50%;
+    margin-right: 50%;
+}
+
+QFrame {
+    background-color: #2f3330;
+}

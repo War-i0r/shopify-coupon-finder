@@ -2,6 +2,9 @@
 Include/
 Lib/
 Scripts/
+build/
+dist/
 
+README.md
 
 pyvenv.cfg
