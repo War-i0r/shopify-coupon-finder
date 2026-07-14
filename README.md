@@ -23,8 +23,7 @@ NOTE: some codes may not work in conjunction with others. The program will not l
 
 
 
-#### Future Plans
+## Future Plans
 
 Save operational codes to local file on disk
-UI in the scroll area that shows which codes worked and which did not
 General Optimization.
