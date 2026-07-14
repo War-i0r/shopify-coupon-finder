@@ -5,6 +5,11 @@ Scripts/
 build/
 dist/
 
-README.md
+
+
+main.spec
+
+.gitignore
 
 pyvenv.cfg
+

@@ -39,9 +39,9 @@ import re
 # Code Colors
 
 COLORS = {
-    10 : "color:orange;",
-    20 : "color:yellow",
-    30 : "color:green;",
+    5 : "color:orange;",
+    10 : "color:yellow",
+    20 : "color:green;",
 }
 
 # Copyright 2026 Thomas Zimmerman #
@@ -80,6 +80,8 @@ class MainWindow(QMainWindow):
         self.searchQuery = QLineEdit(self)
 
         self.searchQuery.setGeometry(0, 0, 100, 50)
+
+        self.searchQuery.setPlaceholderText("Search here...")
 
         self.searchFrame = QFrame()
         button1 = QPushButton("Initiate Search!", self.searchFrame)
@@ -131,11 +133,12 @@ class MainWindow(QMainWindow):
         autoFrameLayout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.autofillFrame.setMinimumSize(QSize(400, 10))
 
-        autofillButton = QPushButton("Check Codes", self.autofillFrame)
+        self.autofillButton = QPushButton("Check Codes", self.autofillFrame)
+        self.autofillButton.setEnabled(False)
 
-        autofillButton.clicked.connect(self._autofill)
+        self.autofillButton.clicked.connect(self._autofill)
 
-        self.autofillStatus = QLabel("Click 'Check Codes' to check the found codes for their authenticity.", self.autofillFrame)
+        self.autofillStatus = QLabel("Click 'Check Codes' to check the found codes for their authenticity. (You must have searched for some first)", self.autofillFrame)
         self.autofillStatus.setWordWrap(True)
         self.autofillStatus.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
@@ -157,7 +160,7 @@ class MainWindow(QMainWindow):
 
         autoFrameLayout.addWidget(self.autofillStatus)
         autoFrameLayout.addSpacerItem(QSpacerItem(50, 50, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed))
-        autoFrameLayout.addWidget(autofillButton)
+        autoFrameLayout.addWidget(self.autofillButton)
         autoFrameLayout.addSpacerItem(QSpacerItem(50, 50, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed))
         autoFrameLayout.addWidget(self.stopOnFirstFrame)
 
@@ -169,10 +172,21 @@ class MainWindow(QMainWindow):
         # testing the qss system
         self.autofillFrame.setObjectName("autofillFrame")
         self.resultFrame.setObjectName("resultFrame")
-        autofillButton.setObjectName("autofillButton")
+        self.autofillButton.setObjectName("autofillButton")
         self.autofillStatus.setObjectName("autofillStats")
 
     
+
+    def _determine_discount(self):
+        # find the old price
+        oldPrice = self.browser.find_element(By.CSS_SELECTOR, "div > s").text
+        # format old price to a float
+        oldPrice = float(oldPrice.replace("$", ""))
+        # to find the amount saved, use strong[translate="no"]
+        actualSaved = self.browser.find_element(By.CSS_SELECTOR, 'strong[translate="no"]').text
+        # format actual saved to a float
+        actualSaved = float(actualSaved.replace("$", ""))
+        return round((actualSaved/oldPrice)*100.0, 2)
     
     def _clear_element(self, element):
         element.send_keys(Keys.CONTROL, "a");
@@ -185,21 +199,26 @@ class MainWindow(QMainWindow):
         if (self.firstAutofill):
             diag = QMessageBox()
             diag.setWindowTitle("Alert")
-            diag.setText("NOTE: This assumes that you have opened the relevant Shopify page for your target company within the popup, added a random item, proceeded to the checkout page, and opened the discount code text box. If this is not done, this will fail. Make sure the only open tab is the shopify page.")
+            diag.setText("NOTE: This assumes that you have completed the following steps:\n\nOpened the relevant Shopify page for your target company within the popup browser\nAdded any item\nProceeded to the checkout page\nOpened the discount code text box.\nIf this is not done, this will fail. Make sure the only open tab is the shopify page.")
             diag.setIcon(QMessageBox.Icon.Question)
             diag.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel);
             diag.exec()
+            self._info_dialog("You must only have ONE tab open, which should have your company's checkout page. Failure to do this will result in a crash.", QMessageBox.Icon.Critical)
             self.firstAutofill = False;
         else:
-            # Attempt Autofill
+            # Re-Check to make sure we're on only the first tab
+            self.browser.switch_to.window(list(self.browser.window_handles)[0])
+            # Highlight the boxes we are targeting
             inputBox = self.browser.find_element(By.CSS_SELECTOR, "[id^='ReductionsInput']:not([id$='label'])")
             self._apply_style(inputBox, 'border:10px solid yellow; background-color:yellow;')
-
             button = self.browser.find_element(By.CSS_SELECTOR, "[data-event-name='apply_discount']")
             self._apply_style(button, 'border:10px solid yellow; background-color:yellow;')
+
+
             # change wait to five seconds to find element, as discounts take a while for Shopify discounts to load on the first go
             self.browser.implicitly_wait(5)
             working_codes = []
+            to_remove = []
             for code, discount in self.foundCodes.items():
                 QtTest.QTest.qWait(500)
                 self._auto_type(inputBox, code)
@@ -207,26 +226,53 @@ class MainWindow(QMainWindow):
                 self._click_button(button)
                 if (self._element_exists([By.CSS_SELECTOR, "[aria-label='Remove "+code+"']"])):
                     working_codes.append(code)
-                    codeWorkedNormal = True
-            
+                    actualDiscount = self._determine_discount();
+           
+                    self.foundCodes[code] = actualDiscount
+
+                    # find the "remove" button for the active code
+                    removeButton = self.browser.find_element(By.CSS_SELECTOR, "[aria-label='Remove "+code+"']>span>svg>use")
+                    self._click_button(removeButton)
+                else:
+                    # the code did not work, queue it to be removed
+                    to_remove.append(code)
+                
+                
+
+                """
                 if (not codeWorkedNormal and self._element_exists([By.CSS_SELECTOR, "div > div > div > span > strong"])):
                     working_codes.append(code)
                     # we must press the button to close this dialog for later, when we're testing other codes
                     closeButton = self._find_element([By.CSS_SELECTOR, "div > div > div > button[aria-label='Close']"])
                     self._click_button(closeButton)
-                    
+                """
                 QtTest.QTest.qWait(1000)
                 self._clear_element(inputBox)
+                
                 if (self.stopOnFirst.isChecked() and len(working_codes) == 1):
                     break
-           
+                elif(len(working_codes) == 1):
+                    # change implicit wait back to 2 seconds, as the first has now loaded
+                    self.browser.implicitly_wait(2)
+
+
+            # remove the bad codes
+            for code in to_remove:
+                self.foundCodes.pop(code)
+            
+            # re-sort self.foundCodes
+            oldData = self.foundCodes
+            self.foundCodes = self._sort_dict_by_value(self.foundCodes)
+
             alertMessage = "These are the following codes which worked, and the discounts they gave:\n"
             for code, discount in self.foundCodes.items():
                 if code in working_codes:
                     alertMessage += code + ", at a " + str(discount) + "% discount!\n" 
             if len(working_codes) == 0:
                 alertMessage = "No valid discount codes found... Sorry!"
-            self._info_dialog(alertMessage)
+            self._update_code_ui(self.foundCodes)
+            self._info_dialog(alertMessage, QMessageBox.Icon.Information)
+            
 
     def _click_button(self, element):
         try:
@@ -247,11 +293,11 @@ class MainWindow(QMainWindow):
         except NoSuchElementException:
             return False;      
 
-    def _info_dialog(self, message):
+    def _info_dialog(self, message, icon : QMessageBox.Icon = QMessageBox.Icon.Information):
         diag = QMessageBox()
         diag.setWindowTitle("Complete!")
         diag.setText(message)
-        diag.setIcon(QMessageBox.Icon.Information)
+        diag.setIcon(icon)
         diag.setStandardButtons(QMessageBox.StandardButton.Ok);
         diag.exec()
 
@@ -272,10 +318,8 @@ class MainWindow(QMainWindow):
 
 
     def _update_code_ui(self, foundCodes : dict):
-        for child in self.resultContainer.children():
-            self.resultContainer.removeWidget(child)
+        self.resultContainer = QVBoxLayout();
         # now empty
-        
         newResultWidget = QWidget()
         newResultWidget.setLayout(self.resultContainer)
         for code, percentOff in foundCodes.items():
@@ -286,9 +330,12 @@ class MainWindow(QMainWindow):
             newLabel.setGeometry(int((self.resultFrame.rect().width() / 2) - newLabel.rect().width()), 0, newLabel.rect().width(), 80)
             newLabel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             for value, style in COLORS.items():
-                if (percentOff >= value):
+                if (percentOff == "unproven"):
+                    newLabel.setStyleSheet("color:#FFFFFF;")
+                    newLabel.setText(f"{code} : Unknown")
+                elif (percentOff >= value):
                     newLabel.setStyleSheet(style)
-
+            newLabel.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             self.resultContainer.addWidget(newLabel)
         self.resultScroll.setWidget(newResultWidget)
         self.firstAutofill = True;
@@ -308,6 +355,7 @@ class MainWindow(QMainWindow):
     
     def handle_click(self):
         self.prospects = {};
+        self.foundCodes = {};
         self.label1.setText("Searching...")
         # initiate the search
         search_query = self._process_query(self.searchQuery.text())
@@ -315,6 +363,7 @@ class MainWindow(QMainWindow):
 
         # Go through the first few links on the page
         self._search_for_targets();
+        self.autofillButton.setEnabled(True)
         
 
     def _find_percentage(self, dealTitle):
@@ -327,14 +376,11 @@ class MainWindow(QMainWindow):
             possible_codes = self.protocols[target]()
             discovered_codes = {}
             for i in range(len(possible_codes[0])):
-                discount = self._find_percentage(possible_codes[1][i]);
                 codeContent = possible_codes[0][i]
-                for disc in discount:
-                    print("possible discount amount for code [" + str(codeContent) + "]: " + str(disc) + "%")
-                    discovered_codes[codeContent] = int(disc)
+                discovered_codes[codeContent] = "unproven"
+
             return discovered_codes
         except:
-            print("The current whitelisted website ["+target+"] does not have an implementation yet.")
             return {}
         
         
@@ -342,13 +388,13 @@ class MainWindow(QMainWindow):
     def _sort_dict_by_value(self, oldDict):
         newDict = dict(sorted(oldDict.items(), key=lambda item: item[1]))
         newDict = dict(reversed(newDict.items()))
-        print(newDict)
         return newDict
 
     def _search_for_targets(self):
         elements = self.browser.find_elements(By.CSS_SELECTOR, "a")
-        count = 0;
+        count = 0
         foundCodes = {}
+
         for element in elements:
             if (count < 10):
                 content = element.text
@@ -357,29 +403,31 @@ class MainWindow(QMainWindow):
                 if (content == "" or root=="duckduckgo.com"):
                     continue
                     
-                print("This link (" + content + ") was rooted at " + str(root))
+
                 if (root in self.targets):
                     self.prospects[link] = [element, element.text]
         
         self.label1.setText("Found sites: " + str(len(self.prospects)))
+
         for prospect in self.prospects:
             root = urlparse(prospect).netloc
             foundCodes[root] = {}
-            print(str(prospect) + " : " + self.prospects[prospect][1])
+
             self.browser.get(prospect)
             codes = self._search_for_codes(root);
 
             for code in codes.keys():
                 foundCodes[root][code] = codes[code]
-            QtTest.QTest.qWait(1000)
+
             oldData = foundCodes[root]
+            # sort all our found codes by value so it's nicer on the user
             foundCodes[root] = self._sort_dict_by_value(oldData)
-            # Need to sort the codes now though
         # Codes were sorted through
         allCodes  = self._merge_codes(foundCodes)
-        print("Combined total list of codes")
+
         self.foundCodes = allCodes
         self._update_code_ui(allCodes)
+        self._info_dialog("Actual discounts can be discovered by using the 'Check Codes' button.")
 
         
             
@@ -416,12 +464,11 @@ class MainWindow(QMainWindow):
                 button = list(self.browser.find_elements(By.CLASS_NAME, "copy-coupon"))[i]
                 ActionChains(self.browser).scroll_to_element(button).perform()
             except ElementNotInteractableException:
-                print("found all visible codes")
                 break
     
             self.browser.switch_to.new_window("tab")
             self.browser.get(original_url)
-            print("executed script")
+ 
             QtTest.QTest.qWait(500)
             handles = list(self.browser.window_handles)
             self.browser.switch_to.window(handles[-1])
@@ -498,8 +545,7 @@ def main():
         data = json.load(f)
 
 
-    for target in data["targets"]:
-        print("Target Found: " + target)
+ 
     
 
 
@@ -508,12 +554,12 @@ def main():
     # Initialize UI
     app = QApplication(sys.argv)
     stylesheet = open(resource_path("styles.qss"), 'r', encoding='UTF8')
-    print(stylesheet.read())
+  
     stylesheet.seek(0)
     
     window = MainWindow(data["targets"], driver);
     app.setStyleSheet(stylesheet.read())
-    print(app.styleSheet())
+   
     window.show();
 
     sys.exit(app.exec_());
