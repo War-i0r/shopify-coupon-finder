@@ -209,7 +209,7 @@ class MainWindow(QMainWindow):
             # Re-Check to make sure we're on only the first tab
             self.browser.switch_to.window(list(self.browser.window_handles)[0])
             # Highlight the boxes we are targeting
-            inputBox = self.browser.find_element(By.CSS_SELECTOR, "[id^='ReductionsInput']:not([id$='label'])")
+            inputBox = self.browser.find_element(By.CSS_SELECTOR, "[id^='ReductionsInput'][name='reductions'][placeholder='Discount code or gift card']:not([id$='label'])")
             self._apply_style(inputBox, 'border:10px solid yellow; background-color:yellow;')
             button = self.browser.find_element(By.CSS_SELECTOR, "[data-event-name='apply_discount']")
             self._apply_style(button, 'border:10px solid yellow; background-color:yellow;')
@@ -219,10 +219,13 @@ class MainWindow(QMainWindow):
             self.browser.implicitly_wait(5)
             working_codes = []
             to_remove = []
+            actions = ActionChains(self.browser)
             for code, discount in self.foundCodes.items():
+                actions.move_to_element(inputBox)
                 QtTest.QTest.qWait(500)
                 self._auto_type(inputBox, code)
                 codeWorkedNormal = False;
+                actions.move_to_element(button)
                 self._click_button(button)
                 if (self._element_exists([By.CSS_SELECTOR, "[aria-label='Remove "+code+"']"])):
                     working_codes.append(code)
@@ -441,19 +444,18 @@ class MainWindow(QMainWindow):
         # this requires much more of a methodical approach, the codes are not raw pasted into the site
         results = [[], []]
         # has a "show more" button that repeatedly appears near the bottom, lets click multiple times
-        ###
-        """
-        for i in range(100):
-            try:
-                click_more = self.browser.find_element(By.ID, "codes-show-more")
-                ActionChains(self.browser).scroll_to_element(click_more).perform()
-                QtTest.QTest.qWait(2000)
-                click_more.click()
-            except ElementNotInteractableException:
-                print("we found all visible codes")
-                break
-        """
-        # get the original handle so we don't stray too far away
+
+        #//for i in range(100):
+        #//    try:
+        #//        click_more = self.browser.find_element(By.ID, "codes-show-more")
+        #//        ActionChains(self.browser).scroll_to_element(click_more).perform()
+        #//        QtTest.QTest.qWait(2000)
+        #//        click_more.click()
+        #//    except ElementNotInteractableException:
+        #//        print("we found all visible codes")
+        #//        break
+    
+        # ! get the original handle so an error does not occur later on
         original_handle = self.browser.current_window_handle
         original_url = self.browser.current_url
         all_code_buttons = self.browser.find_elements(By.CLASS_NAME, "copy-coupon")
